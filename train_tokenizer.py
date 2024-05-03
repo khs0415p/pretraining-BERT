@@ -45,7 +45,6 @@ def main(config: Config, prefix: str = "##"):
     
 
     # Save tokenizer for transformers
-    tokenizer.save("wpm-32000", True)
     wrapped_tokenizer = BertTokenizerFast(
         tokenizer_object=tokenizer,
     )

@@ -26,11 +26,34 @@ def get_pretrained_weights(model: PreTrainedModel, pretrained_model: PreTrainedM
 
 
 def collate_fn(batch: List[Dict[str, torch.Tensor]], padding_value: int = 0) -> Dict[str, torch.Tensor]:
+    input_ids, token_type_ids, mask_label, nsp_label = tuple([instance[key] for instance in batch] for key in ("input_ids", "token_type_ids", "mask_label", "nsp_label"))
     # Dynamic padding
-    # text
-    torch.nn.utils.rnn.pad_sequence(batch_first=True, padding_value=padding_value)
-    # label
-    torch.nn.utils.rnn.pad_sequence(batch_first=True, padding_value=IGNORE_ID)
+    
+    input_ids = torch.nn.utils.rnn.pad_sequence(
+        input_ids, batch_first=True, padding_value=padding_value
+        )
+    
+    token_type_ids = torch.nn.utils.rnn.pad_sequence(
+        token_type_ids, batch_first=True, padding_value=padding_value
+        )
+    
+    mask_label = torch.nn.utils.rnn.pad_sequence(
+        mask_label, batch_first=True, padding_value=IGNORE_ID
+        )
+    
+    attention_mask = input_ids.ne(padding_value)
     return {
-
+        "input_ids": input_ids,
+        "token_type_ids": token_type_ids,
+        "attention_mask": attention_mask,
+        "mask_label": mask_label,
+        "nsp_label": torch.stack(nsp_label, dim=0)
     }
+    
+    
+        
+
+def get_linear_schedule_with_warmup_lr_lambda(current_step: int, *, num_warmup_steps: int, num_training_steps: int):
+    if current_step < num_warmup_steps:
+        return float(current_step) / float(max(1, num_warmup_steps))
+    return max(0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps)))
