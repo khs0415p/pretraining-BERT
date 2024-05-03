@@ -185,8 +185,8 @@ class Trainer:
     def _validation_step(self, batch: Dict, labels: Dict):
         output = self.model(**batch)
         # Losses
-        mlm_loss = self.criterion(output['prediction_logits'].view(-1, output['prediction_logits'].size(-1)), labels['mask_label'].view(-1)).detach()
-        nsp_loss = self.criterion(output['seq_relationship_logits'], labels['nsp_label'].view(-1)).detach()
+        mlm_loss = self.mlm_criterion(output['prediction_logits'].view(-1, output['prediction_logits'].size(-1)), labels['mask_label'].view(-1)).detach()
+        nsp_loss = self.nsp_criterion(output['seq_relationship_logits'], labels['nsp_label'].view(-1)).detach()
         total_loss = mlm_loss + nsp_loss
 
         return total_loss.item(), mlm_loss.item(), nsp_loss.item()
