@@ -202,16 +202,16 @@ class Trainer:
             torch.save(self.model.state_dict(), 'results/pytorch_model.bin')
             torch.save(self.optimizer.state_dict(), 'results/optimizer.pt')
             torch.save(self.scheduler.state_dict(), 'results/scheduler.pt')
-            save_model(self.model, "results/model.safetensors")
-            self.model.config_class().to_json_file('results/config.json')
+            # save_model(self.model, "results/model.safetensors")
+            self.model.config.to_json_file('results/config.json')
             return
         
         if best_loss > loss:
             torch.save(self.model.state_dict(), 'results/best/pytorch_model.bin')
             torch.save(self.optimizer.state_dict(), 'results/best/optimizer.pt')
             torch.save(self.scheduler.state_dict(), 'results/best/scheduler.pt')
-            save_model(self.model, "results/best/model.safetensors")
-            self.model.config_class().to_json_file('results/config.json')
+            # save_model(self.model, "results/best/model.safetensors")
+            self.model.config.to_json_file('results/best/config.json')
             self.logger.info(f"Save the model at {step} steps.")
             return loss
         return best_loss
