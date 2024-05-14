@@ -70,7 +70,7 @@ class Trainer:
                         "weight_decay": 0.0,
                     },
                 ]
-        self.optimizer = optim.AdamW(
+        self.optimizer = optim.Adam(
             optimizer_grouped_parameters,
             lr=self.config.lr,
             betas=self.config.betas,

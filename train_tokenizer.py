@@ -1,14 +1,7 @@
+import os
 import logging
-from typing import List
-from tokenizers import (
-    decoders,
-    models,
-    normalizers,
-    pre_tokenizers,
-    processors,
-    trainers,
-    Tokenizer,
-)
+import glob
+
 from config import Config
 from transformers import BertTokenizerFast
 from tokenizers import BertWordPieceTokenizer
@@ -22,8 +15,8 @@ def get_bert_tokenizer():
         vocab=None,
         clean_text=True,
         handle_chinese_chars=True,
-        strip_accents=True,
-        lowercase=True,
+        strip_accents=False,
+        lowercase=False,
         wordpieces_prefix="##"
     )
     return tokenizer
@@ -33,13 +26,21 @@ def main(config: Config, prefix: str = "##"):
     vocab_size = config.vocab_size
     tokenizer_save_path = config.tokenizer_save_path
     tokenizer_data_path = config.tokenizer_data_path
+    data_list = glob.glob(tokenizer_data_path)
+    train_files = []
+
+    # remove dir
+    for path in data_list:
+        if os.path.isdir(path): continue
+        train_files.append(path)
+
     tokenizer = get_bert_tokenizer()
 
     # Train
     tokenizer.train(
-        files=[tokenizer_data_path],
-        limit_alphabet=1000,
-        min_frequency=5,
+        files=train_files,
+        limit_alphabet=config.limit_alphabet,
+        min_frequency=config.min_frequency,
         vocab_size=vocab_size
     )
     
