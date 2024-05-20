@@ -27,13 +27,13 @@ def main(config: Config, prefix: str = "##"):
     tokenizer_save_path = config.tokenizer_save_path
     tokenizer_data_path = config.tokenizer_data_path
     data_list = glob.glob(tokenizer_data_path)
+    
     train_files = []
-
     # remove dir
     for path in data_list:
         if os.path.isdir(path): continue
         train_files.append(path)
-
+    print("Number of files :", len(train_files))
     tokenizer = get_bert_tokenizer()
 
     # Train
@@ -44,7 +44,6 @@ def main(config: Config, prefix: str = "##"):
         vocab_size=vocab_size
     )
     
-
     # Save tokenizer for transformers
     wrapped_tokenizer = BertTokenizerFast(
         tokenizer_object=tokenizer,
@@ -56,4 +55,5 @@ def main(config: Config, prefix: str = "##"):
 
 if __name__ == "__main__":
     config = Config()
+    
     main(config)
