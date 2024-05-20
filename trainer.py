@@ -12,7 +12,7 @@ from tqdm import tqdm
 from functools import partial
 from config import Config
 from utils import *
-from transformers import BertConfig
+from transformers import BertConfig, AdamW
 from torch.utils.data import DataLoader
 from torch.nn.utils import clip_grad_norm_
 from transformers import (
@@ -70,11 +70,12 @@ class Trainer:
                         "weight_decay": 0.0,
                     },
                 ]
-        self.optimizer = optim.Adam(
+        self.optimizer = AdamW(
             optimizer_grouped_parameters,
             lr=self.config.lr,
             betas=self.config.betas,
             eps=self.config.eps,
+            correct_bias=False
         )
         
         # Valid dataset
