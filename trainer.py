@@ -214,7 +214,8 @@ class Trainer:
             torch.save(self.scheduler.state_dict(), 'results/best/scheduler.pt')
             # save_model(self.model, "results/best/model.safetensors")
             self.model.config.to_json_file('results/best/config.json')
-            self.logger.info(f"Save the model at {step} steps.")
+            self.logger.info(f"\nSave the model at {step} steps.")
+            self.logger.info(f"\nLoss at {step} steps : {loss:.4f}")
             return loss
         return best_loss
 
