@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from typing import Dict
 from tqdm import tqdm
 from functools import partial
 from config import Config
@@ -144,7 +145,7 @@ class Trainer:
                     
                     if phase == "train":
                         if self.config.visualize_lr:
-                            self._visualize_schduler()
+                            self._visualize_scheduler()
                         total_loss, mlm_loss, nsp_loss = self._training_step(model_inputs, labels)
                     else:
                         total_loss, mlm_loss, nsp_loss = self._validation_step(model_inputs, labels)
@@ -218,5 +219,5 @@ class Trainer:
         return best_loss
 
 
-    def _visualize_schduler(self):
+    def _visualize_scheduler(self):
         self.learning_rates.append(self.optimizer.param_groups[0]['lr'])
