@@ -38,6 +38,7 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 
+
 def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -46,6 +47,7 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
     numpy.random.seed(seed)
     random.seed(seed)
+
 
 def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
