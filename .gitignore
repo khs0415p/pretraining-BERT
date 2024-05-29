@@ -169,5 +169,6 @@ results/
 logs/
 
 # data
-*.json
+data/*.json
+data/*.pk
 *.txt
