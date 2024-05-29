@@ -270,7 +270,7 @@ class Trainer:
             torch.save(self.model.state_dict(), f'results/{step}-step/pytorch_model.bin')
             torch.save(self.optimizer.state_dict(), f'results/{step}-step/optimizer.pt')
             torch.save(self.scheduler.state_dict(), f'results/{step}-step/scheduler.pt')
-            self.model.config.to_json_file(f'results/{step}/config.json')
+            self.model.config.to_json_file(f'results/{step}-step/config.json')
 
             with open(f'results/{step}-step/info.txt', 'w', encoding='utf-8') as f:
                 f.write('Loss : {loss}\nStep : {step}')
