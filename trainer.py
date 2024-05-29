@@ -58,6 +58,9 @@ class Trainer:
             self.model.load_state_dict(layers)
             del pretrained_model
 
+        # Change device
+        self.model.to(self.device)
+
         # Define Optimizer
         self.exclude_from_weight_decay = self.config.exclude_from_weight_decay
         optimizer_grouped_parameters = [
@@ -104,7 +107,7 @@ class Trainer:
             step_per_epoch = math.ceil(len(dataset) / self.config.batch_size)
 
         total_steps = step_per_epoch * self.config.epochs
-        logger.info(f"\nNumber of Train data : {len(dataset)}\nTotal Steps : {total_steps}")
+        logger.info(f"Number of Train data : {len(dataset)}\nTotal Steps : {total_steps}")
         del dataset
 
         lr_lambda = partial(
@@ -122,9 +125,9 @@ class Trainer:
 
         # Continuous learning
         if self.config.continuous:
-            logger.info("\t##### Continuous Learning Mode #####")
-            model_state = torch.load(os.path.join(self.config.checkpoint, 'pytorch_model.bin'))
-            optimizer_state = torch.load(os.path.join(self.config.checkpoint, 'optimizer.pt'))
+            logger.info("##### Continuous Learning Mode #####")
+            model_state = torch.load(os.path.join(self.config.checkpoint, 'pytorch_model.bin'), map_location=self.device)
+            optimizer_state = torch.load(os.path.join(self.config.checkpoint, 'optimizer.pt'), map_location=self.device)
             scheduler_state = torch.load(os.path.join(self.config.checkpoint, 'scheduler.pt'))
 
             with open(os.path.join(self.config.checkpoint, 'train-loss.pk'), 'rb') as f:
@@ -142,9 +145,6 @@ class Trainer:
 
             del model_state, optimizer_state, scheduler_state
             torch.cuda.empty_cache()
-
-        # Change device
-        self.model.to(self.device)
         
         # Define Losses
         self.nsp_criterion = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
