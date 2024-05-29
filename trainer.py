@@ -1,7 +1,10 @@
+import os
 import logging
 import pickle
 import math
 import time
+import heapq
+import shutil
 
 import torch
 import torch.nn as nn
@@ -35,6 +38,12 @@ class Trainer:
         self.config = config
         self.logger = logger
 
+        # Number of checkpoint
+        self.save_total_limit = self.config.save_total_limit
+
+        # Saved path
+        self.saved_path = []
+
         # Defin Device
         self.device = device
 
@@ -49,7 +58,6 @@ class Trainer:
             layers = get_pretrained_weights(self.model, pretrained_model)
             self.model.load_state_dict(layers)
             del pretrained_model
-        self.model.to(self.device)
 
         # Define Optimizer
         self.exclude_from_weight_decay = self.config.exclude_from_weight_decay
@@ -109,12 +117,33 @@ class Trainer:
             self.optimizer,
             lr_lambda,
             )
-        
+
+        # Continuous learning
+        if self.config.continuous:
+            logger.info("\t##### Continuous Learning Mode #####")
+            model_state = torch.load(os.path.join(self.config.checkpoint, 'pytorch_model.bin'))
+            optimizer_state = torch.load(os.path.join(self.config.checkpoint, 'optimizer.pt'))
+            scheduler_state = torch.load(os.path.join(self.config.checkpoint, 'scheduler.pt'))
+
+            self.model.load_state_dict(model_state)
+            self.optimizer.load_state_dict(optimizer_state)
+            self.scheduler.load_state_dict(scheduler_state)
+
+            del model_state, optimizer_state, scheduler_state
+            torch.cuda.empty_cache()
+
+        # Change device
+        self.model.to(self.device)
+
+        # LR list
         self.learning_rates = []
         
         # Define Losses
         self.nsp_criterion = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
         self.mlm_criterion = nn.CrossEntropyLoss(ignore_index=-100)
+
+        logger.info(f"\n{'Initialize Trainer':>15}\n{'Batch Size':<15}{config.batch_size}\n{'Vocab Size':<15}{config.vocab_size}\n{'Learning Rate':<15}{config.lr}\n{'Optimizer':<15}{type(self.optimizer)}")
+
 
     def train(self):
         best_val_loss = float('inf')
@@ -144,12 +173,16 @@ class Trainer:
                     labels = {k: batch[k].type(torch.LongTensor).to(self.device) for k in ("mask_label", "nsp_label")}
                     
                     if phase == "train":
-                        if self.config.visualize_lr:
-                            self._visualize_scheduler()
+                        self._save_learning_rate()
                         total_loss, mlm_loss, nsp_loss = self._training_step(model_inputs, labels)
                     else:
                         total_loss, mlm_loss, nsp_loss = self._validation_step(model_inputs, labels)
-                        best_val_loss = self._save_checkpoint(best_val_loss, total_loss, (epoch * len(self.dataloaders[phase].dataset)) + i)
+                        best_val_loss = self._save_checkpoint(
+                            best_val_loss, total_loss,
+                            (epoch * len(self.dataloaders[phase])) + i,
+                            train_losses=train_loss_history,
+                            valid_losses=valid_loss_history
+                            )
 
                     if i % self.config.log_step == 0:
                         self.logger.info(f"\n{'Epoch':<15}{epoch + 1}\n{'Phase':<15}{phase}\n{'Step':<15}{i}\n{'Total Loss':<15}{total_loss:.4f}\n{'MLM Loss':<15}{mlm_loss:.4f}\n{'NSP Loss':<15}{nsp_loss:.4f}\n")
@@ -161,9 +194,9 @@ class Trainer:
                     epoch_loss += total_loss * batch['input_ids'].size(0)
                 epoch_loss = epoch_loss / len(self.dataloaders[phase].dataset)
                 self.logger.info(f"\n{'Epoch Loss':<15}{epoch_loss:.4f}")
-        self._save_checkpoint(last_save=True)
+        self._save_checkpoint(last_save=True, train_losses=train_loss_history, valid_losses=valid_loss_history)
         
-        return valid_loss_history, train_loss_history
+        self.logger.info(f"\nCompleted training.")
             
     
     def _training_step(self, batch: Dict, labels: Dict):
@@ -198,27 +231,59 @@ class Trainer:
             best_loss: float = None,
             loss: float = None,
             step: float = None,
+            train_losses: List = None,
+            valid_losses: List = None,
             last_save: bool = False
             ):
         if last_save:
             torch.save(self.model.state_dict(), 'results/pytorch_model.bin')
             torch.save(self.optimizer.state_dict(), 'results/optimizer.pt')
             torch.save(self.scheduler.state_dict(), 'results/scheduler.pt')
-            # save_model(self.model, "results/model.safetensors")
             self.model.config.to_json_file('results/config.json')
+
+            with open(f'results/train-loss', 'wb', encoding='utf-8') as f:
+                pickle.dump(train_losses, f)
+
+            with open(f'results/valid-loss', 'wb', encoding='utf-8') as f:
+                pickle.dump(valid_losses, f)
+
+            with open(f'results/lrs', 'wb', encoding='utf-8') as f:
+                pickle.dump(self.learning_rates, f)
             return
         
         if best_loss > loss:
-            torch.save(self.model.state_dict(), 'results/best/pytorch_model.bin')
-            torch.save(self.optimizer.state_dict(), 'results/best/optimizer.pt')
-            torch.save(self.scheduler.state_dict(), 'results/best/scheduler.pt')
-            # save_model(self.model, "results/best/model.safetensors")
-            self.model.config.to_json_file('results/best/config.json')
+            os.makedirs(f'results/{step}-step/', exist_ok=True)
+
+            if len(self.saved_path) >= self.save_total_limit:
+                remove_item = heapq.heappop(self.saved_path)
+                shutil.rmtree(remove_item[1])
+
+            torch.save(self.model.state_dict(), f'results/{step}-step/pytorch_model.bin')
+            torch.save(self.optimizer.state_dict(), f'results/{step}-step/optimizer.pt')
+            torch.save(self.scheduler.state_dict(), f'results/{step}-step/scheduler.pt')
+            self.model.config.to_json_file(f'results/{step}/config.json')
+
+            with open(f'results/{step}-step/info.txt', 'w', encoding='utf-8') as f:
+                f.write('Loss : {loss}\nStep : {step}')
+
+            with open(f'results/{step}-step/train-loss', 'wb', encoding='utf-8') as f:
+                pickle.dump(train_losses, f)
+
+            with open(f'results/{step}-step/valid-loss', 'wb', encoding='utf-8') as f:
+                pickle.dump(valid_losses, f)
+
+            with open(f'results/{step}-step/lrs', 'wb', encoding='utf-8') as f:
+                pickle.dump(self.learning_rates, f)
+
+            heapq.heappush(self.saved_path, (-loss, f'results/{step}-step/'))
+
+
             self.logger.info(f"\nSave the model at {step} steps.")
             self.logger.info(f"\nLoss at {step} steps : {loss:.4f}")
             return loss
+
         return best_loss
 
 
-    def _visualize_scheduler(self):
+    def _save_learning_rate(self):
         self.learning_rates.append(self.optimizer.param_groups[0]['lr'])
