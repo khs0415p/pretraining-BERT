@@ -185,7 +185,7 @@ class Trainer:
                             )
 
                     if i % self.config.log_step == 0:
-                        self.logger.info(f"\n{'Epoch':<15}{epoch + 1}\n{'Phase':<15}{phase}\n{'Step':<15}{i}\n{'Total Loss':<15}{total_loss:.4f}\n{'MLM Loss':<15}{mlm_loss:.4f}\n{'NSP Loss':<15}{nsp_loss:.4f}\n")
+                        self.logger.info(f"{'Epoch':<15}{epoch + 1}\n{'Phase':<15}{phase}\n{'Step':<15}{i}\n{'Total Loss':<15}{total_loss:.4f}\n{'MLM Loss':<15}{mlm_loss:.4f}\n{'NSP Loss':<15}{nsp_loss:.4f}\n")
                         if phase == "train":
                             # step / loss
                             train_loss_history.append([(epoch * len(self.dataloaders[phase])) + i, total_loss])
@@ -193,10 +193,10 @@ class Trainer:
                             valid_loss_history.append([(epoch * len(self.dataloaders[phase])) + i, total_loss])
                     epoch_loss += total_loss * batch['input_ids'].size(0)
                 epoch_loss = epoch_loss / len(self.dataloaders[phase].dataset)
-                self.logger.info(f"\n{'Epoch Loss':<15}{epoch_loss:.4f}")
+                self.logger.info(f"{'Epoch Loss':<15}{epoch_loss:.4f}")
         self._save_checkpoint(last_save=True, train_losses=train_loss_history, valid_losses=valid_loss_history)
         
-        self.logger.info(f"\nCompleted training.")
+        self.logger.info(f"Completed training.")
             
     
     def _training_step(self, batch: Dict, labels: Dict):
@@ -278,8 +278,8 @@ class Trainer:
             heapq.heappush(self.saved_path, (-loss, f'results/{step}-step/'))
 
 
-            self.logger.info(f"\nSave the model at {step} steps.")
-            self.logger.info(f"\nLoss at {step} steps : {loss:.4f}")
+            self.logger.info(f"Save the model at {step} steps.")
+            self.logger.info(f"Loss at {step} steps : {loss:.4f}")
             return loss
 
         return best_loss

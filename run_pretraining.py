@@ -24,7 +24,7 @@ if not os.path.exists('results/'):
 
 logger = logging.getLogger("TRAIN BERT")
 logger.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s|%(name)s%(message)s")
+formatter = logging.Formatter("%(asctime)s - %(name)s\n%(message)s")
 file_handler = logging.FileHandler(f"logs/{str(datetime.datetime.now())}.log")
 file_handler.setFormatter(formatter)
 stream_handler = logging.StreamHandler()
