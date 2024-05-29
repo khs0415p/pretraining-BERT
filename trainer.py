@@ -22,7 +22,6 @@ from torch.nn.utils import clip_grad_norm_
 from transformers import (
     PreTrainedTokenizerBase,
 )
-from safetensors.torch import save_model
 
 from model.modeling_bert import BertForPreTraining
 
@@ -117,6 +116,9 @@ class Trainer:
             self.optimizer,
             lr_lambda,
             )
+        
+        # LR list
+        self.learning_rates = []
 
         # Continuous learning
         if self.config.continuous:
@@ -124,6 +126,15 @@ class Trainer:
             model_state = torch.load(os.path.join(self.config.checkpoint, 'pytorch_model.bin'))
             optimizer_state = torch.load(os.path.join(self.config.checkpoint, 'optimizer.pt'))
             scheduler_state = torch.load(os.path.join(self.config.checkpoint, 'scheduler.pt'))
+
+            with open(os.path.join(self.config.checkpoint, 'train-loss.pk'), 'rb') as f:
+                self.train_losses = pickle.load(f)
+
+            with open(os.path.join(self.config.checkpoint, 'valid-loss.pk'), 'rb') as f:
+                self.valid_losses = pickle.load(f)
+
+            with open(os.path.join(self.config.checkpoint, 'lrs.pk'), 'rb') as f:
+                self.learning_rates = pickle.load(f)
 
             self.model.load_state_dict(model_state)
             self.optimizer.load_state_dict(optimizer_state)
@@ -134,9 +145,6 @@ class Trainer:
 
         # Change device
         self.model.to(self.device)
-
-        # LR list
-        self.learning_rates = []
         
         # Define Losses
         self.nsp_criterion = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
@@ -147,7 +155,8 @@ class Trainer:
 
     def train(self):
         best_val_loss = float('inf')
-        train_loss_history, valid_loss_history = [], []
+        train_loss_history = self.train_losses if self.config.continuous else []
+        valid_loss_history = self.valid_losses if self.config.continuous else []
         for epoch in range(self.config.epochs):
             for phase in ['train', 'valid']:
                 
@@ -241,13 +250,13 @@ class Trainer:
             torch.save(self.scheduler.state_dict(), 'results/scheduler.pt')
             self.model.config.to_json_file('results/config.json')
 
-            with open(f'results/train-loss', 'wb', encoding='utf-8') as f:
+            with open(f'results/train-loss.pk', 'wb', encoding='utf-8') as f:
                 pickle.dump(train_losses, f)
 
-            with open(f'results/valid-loss', 'wb', encoding='utf-8') as f:
+            with open(f'results/valid-loss.pk', 'wb', encoding='utf-8') as f:
                 pickle.dump(valid_losses, f)
 
-            with open(f'results/lrs', 'wb', encoding='utf-8') as f:
+            with open(f'results/lrs.pk', 'wb', encoding='utf-8') as f:
                 pickle.dump(self.learning_rates, f)
             return
         
@@ -266,20 +275,20 @@ class Trainer:
             with open(f'results/{step}-step/info.txt', 'w', encoding='utf-8') as f:
                 f.write('Loss : {loss}\nStep : {step}')
 
-            with open(f'results/{step}-step/train-loss', 'wb', encoding='utf-8') as f:
+            with open(f'results/{step}-step/train-loss.pk', 'wb', encoding='utf-8') as f:
                 pickle.dump(train_losses, f)
 
-            with open(f'results/{step}-step/valid-loss', 'wb', encoding='utf-8') as f:
+            with open(f'results/{step}-step/valid-loss.pk', 'wb', encoding='utf-8') as f:
                 pickle.dump(valid_losses, f)
 
-            with open(f'results/{step}-step/lrs', 'wb', encoding='utf-8') as f:
+            with open(f'results/{step}-step/lrs.pk', 'wb', encoding='utf-8') as f:
                 pickle.dump(self.learning_rates, f)
 
             heapq.heappush(self.saved_path, (-loss, f'results/{step}-step/'))
 
-
             self.logger.info(f"Save the model at {step} steps.")
             self.logger.info(f"Loss at {step} steps : {loss:.4f}")
+
             return loss
 
         return best_loss
