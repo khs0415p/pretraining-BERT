@@ -187,7 +187,8 @@ class Trainer:
                     else:
                         total_loss, mlm_loss, nsp_loss = self._validation_step(model_inputs, labels)
                         best_val_loss = self._save_checkpoint(
-                            best_val_loss, total_loss,
+                            best_val_loss,
+                            total_loss,
                             (epoch * len(self.dataloaders[phase])) + i,
                             train_losses=train_loss_history,
                             valid_losses=valid_loss_history
@@ -250,19 +251,19 @@ class Trainer:
             torch.save(self.scheduler.state_dict(), 'results/scheduler.pt')
             self.model.config.to_json_file('results/config.json')
 
-            with open(f'results/train-loss.pk', 'wb', encoding='utf-8') as f:
+            with open(f'results/train-loss.pk', 'wb') as f:
                 pickle.dump(train_losses, f)
 
-            with open(f'results/valid-loss.pk', 'wb', encoding='utf-8') as f:
+            with open(f'results/valid-loss.pk', 'wb') as f:
                 pickle.dump(valid_losses, f)
 
-            with open(f'results/lrs.pk', 'wb', encoding='utf-8') as f:
+            with open(f'results/lrs.pk', 'wb') as f:
                 pickle.dump(self.learning_rates, f)
             return
         
         if best_loss > loss:
             os.makedirs(f'results/{step}-step/', exist_ok=True)
-
+            
             if len(self.saved_path) >= self.save_total_limit:
                 remove_item = heapq.heappop(self.saved_path)
                 shutil.rmtree(remove_item[1])
@@ -275,19 +276,18 @@ class Trainer:
             with open(f'results/{step}-step/info.txt', 'w', encoding='utf-8') as f:
                 f.write('Loss : {loss}\nStep : {step}')
 
-            with open(f'results/{step}-step/train-loss.pk', 'wb', encoding='utf-8') as f:
+            with open(f'results/{step}-step/train-loss.pk', 'wb') as f:
                 pickle.dump(train_losses, f)
 
-            with open(f'results/{step}-step/valid-loss.pk', 'wb', encoding='utf-8') as f:
+            with open(f'results/{step}-step/valid-loss.pk', 'wb') as f:
                 pickle.dump(valid_losses, f)
 
-            with open(f'results/{step}-step/lrs.pk', 'wb', encoding='utf-8') as f:
+            with open(f'results/{step}-step/lrs.pk', 'wb') as f:
                 pickle.dump(self.learning_rates, f)
 
             heapq.heappush(self.saved_path, (-loss, f'results/{step}-step/'))
 
-            self.logger.info(f"Save the model at {step} steps.")
-            self.logger.info(f"Loss at {step} steps : {loss:.4f}")
+            self.logger.info(f"Save the model at {step} steps.\nLoss  : {loss:.4f}")
 
             return loss
 
