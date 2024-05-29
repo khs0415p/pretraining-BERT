@@ -172,3 +172,9 @@ logs/
 data/*.json
 data/*.pk
 *.txt
+
+# notebook
+/*.ipynb
+
+# tokenizer
+tokenizer/

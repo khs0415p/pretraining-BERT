@@ -68,7 +68,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--config_path', '-c', type=str, default='./config.json', help="Path of config")
-    parser.add_argument('--continuous', '-con', action="store_true", help="Continuous learning from checkpoint")
+    parser.add_argument('--continuous', '-con', action="store_true", help="Continuous training from checkpoint")
     parser.add_argument('--checkpoint', '-cp', type=str, help="Path of checkpoint")
     args = parser.parse_args()
     main(args)
