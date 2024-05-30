@@ -102,18 +102,25 @@ class Trainer:
         
 
         # Define Scheduler
-        with open(self.config.train_path.format(0), 'rb') as f:
-            dataset = pickle.load(f)
-            step_per_epoch = math.ceil(len(dataset) / self.config.batch_size)
-
-        total_steps = step_per_epoch * self.config.epochs
-        logger.info(f"Number of Train data : {len(dataset)}\nTotal Steps : {total_steps}")
+        if not self.config.continuous:
+            with open(self.config.train_path.format(0), 'rb') as f:
+                dataset = pickle.load(f)
+                step_per_epoch = math.ceil(len(dataset) / self.config.batch_size)
+                self.total_steps = step_per_epoch * self.config.epochs
+        else:
+            with open(os.path.join(self.config.checkpoint, 'checkpoint-info.pk'), 'rb') as f:
+                self.checkpoint_info = pickle.load(f)
+                self.total_steps = self.checkpoint_info['total_steps']
+                self.config.num_warmup_steps = self.checkpoint_info['num_warmup_steps']
+        
+        logger.info(f"Number of Train data : {len(dataset)}\nTotal Steps : {self.total_steps}")
+        
         del dataset
 
         lr_lambda = partial(
             get_linear_schedule_with_warmup_lr_lambda,
             num_warmup_steps=self.config.num_warmup_steps,
-            num_training_steps=total_steps,
+            num_training_steps=1011640,
         )
         self.scheduler = optim.lr_scheduler.LambdaLR(
             self.optimizer,
@@ -129,15 +136,7 @@ class Trainer:
             model_state = torch.load(os.path.join(self.config.checkpoint, 'pytorch_model.bin'), map_location=self.device)
             optimizer_state = torch.load(os.path.join(self.config.checkpoint, 'optimizer.pt'), map_location=self.device)
             scheduler_state = torch.load(os.path.join(self.config.checkpoint, 'scheduler.pt'))
-
-            with open(os.path.join(self.config.checkpoint, 'train-loss.pk'), 'rb') as f:
-                self.train_losses = pickle.load(f)
-
-            with open(os.path.join(self.config.checkpoint, 'valid-loss.pk'), 'rb') as f:
-                self.valid_losses = pickle.load(f)
-
-            with open(os.path.join(self.config.checkpoint, 'lrs.pk'), 'rb') as f:
-                self.learning_rates = pickle.load(f)
+            self.learning_rates = self.checkpoint_info['learning_rates']
 
             self.model.load_state_dict(model_state)
             self.optimizer.load_state_dict(optimizer_state)
@@ -154,17 +153,18 @@ class Trainer:
 
 
     def train(self):
-        best_val_loss = float('inf')
-        train_loss_history = self.train_losses if self.config.continuous else []
-        valid_loss_history = self.valid_losses if self.config.continuous else []
+        best_val_loss = self.checkpoint_info['best_loss'] if self.config.continuous else float('inf')
+        train_loss_history = self.checkpoint_info['train_losses'] if self.config.continuous else []
+        valid_loss_history = self.checkpoint_info['valid_losses'] if self.config.continuous else []
         for epoch in range(self.config.epochs):
             for phase in ['train', 'valid']:
-                
                 if phase == 'train':
                     self.model.train()
                     dataset_num = epoch % 10
+
                     with open(self.config.train_path.format(dataset_num), 'rb') as f:
                         train_dataset = pickle.load(f)
+
                     self.dataloaders['train'] = DataLoader(
                         train_dataset,
                         batch_size=self.config.batch_size,
@@ -186,7 +186,7 @@ class Trainer:
                         total_loss, mlm_loss, nsp_loss = self._training_step(model_inputs, labels)
                     else:
                         total_loss, mlm_loss, nsp_loss = self._validation_step(model_inputs, labels)
-                        best_val_loss = self._save_checkpoint(
+                        best_val_loss = self.save_checkpoint(
                             best_val_loss,
                             total_loss,
                             (epoch * len(self.dataloaders[phase])) + i,
@@ -204,7 +204,7 @@ class Trainer:
                     epoch_loss += total_loss * batch['input_ids'].size(0)
                 epoch_loss = epoch_loss / len(self.dataloaders[phase].dataset)
                 self.logger.info(f"{'Epoch Loss':<15}{epoch_loss:.4f}")
-        self._save_checkpoint(last_save=True, train_losses=train_loss_history, valid_losses=valid_loss_history)
+        self.save_checkpoint(last_save=True, train_losses=train_loss_history, valid_losses=valid_loss_history)
         
         self.logger.info(f"Completed training.")
             
@@ -220,10 +220,9 @@ class Trainer:
 
         total_loss.backward()
         clip_grad_norm_(self.model.parameters(), self.config.max_norm)
-
         self.optimizer.step()
         self.scheduler.step()
-
+        
         return total_loss.item(), mlm_loss.item(), nsp_loss.item()
     
     @torch.no_grad()
@@ -235,8 +234,36 @@ class Trainer:
         total_loss = mlm_loss + nsp_loss
 
         return total_loss.item(), mlm_loss.item(), nsp_loss.item()
-    
+
+
     def _save_checkpoint(
+            self,
+            base_path: str = None,
+            loss: float = None,
+            step: float = None,
+            train_losses: List = None,
+            valid_losses: List = None,
+            ):
+        os.makedirs(base_path, exist_ok=True)
+        torch.save(self.model.state_dict(), f'{base_path}/pytorch_model.bin')
+        torch.save(self.optimizer.state_dict(), f'{base_path}/optimizer.pt')
+        torch.save(self.scheduler.state_dict(), f'{base_path}/scheduler.pt')
+        self.model.config.to_json_file(f'{base_path}/config.json')
+
+        save_items = {
+                'train_losses': train_losses,
+                'valid_losses': valid_losses,
+                'learning_rates': self.learning_rates,
+                'best_loss': loss,
+                'step': step,
+                'total_steps' : self.total_steps,
+                'num_warmup_steps': self.config.num_warmup_steps
+                }
+        with open(f'{base_path}/checkpoint-info.pk', 'wb') as f:
+            pickle.dump(save_items, f)
+
+
+    def save_checkpoint(
             self,
             best_loss: float = None,
             loss: float = None,
@@ -245,47 +272,19 @@ class Trainer:
             valid_losses: List = None,
             last_save: bool = False
             ):
+        base_path = f'results/{step}-step'
         if last_save:
-            torch.save(self.model.state_dict(), 'results/pytorch_model.bin')
-            torch.save(self.optimizer.state_dict(), 'results/optimizer.pt')
-            torch.save(self.scheduler.state_dict(), 'results/scheduler.pt')
-            self.model.config.to_json_file('results/config.json')
-
-            with open(f'results/train-loss.pk', 'wb') as f:
-                pickle.dump(train_losses, f)
-
-            with open(f'results/valid-loss.pk', 'wb') as f:
-                pickle.dump(valid_losses, f)
-
-            with open(f'results/lrs.pk', 'wb') as f:
-                pickle.dump(self.learning_rates, f)
+            base_path = 'results'
+            self._save_checkpoint(base_path, loss, step, train_losses, valid_losses)
             return
         
         if best_loss > loss:
-            os.makedirs(f'results/{step}-step/', exist_ok=True)
-            
             if len(self.saved_path) >= self.save_total_limit:
                 remove_item = heapq.heappop(self.saved_path)
                 shutil.rmtree(remove_item[1])
+            self._save_checkpoint(base_path, loss, step, train_losses, valid_losses)
 
-            torch.save(self.model.state_dict(), f'results/{step}-step/pytorch_model.bin')
-            torch.save(self.optimizer.state_dict(), f'results/{step}-step/optimizer.pt')
-            torch.save(self.scheduler.state_dict(), f'results/{step}-step/scheduler.pt')
-            self.model.config.to_json_file(f'results/{step}-step/config.json')
-
-            with open(f'results/{step}-step/info.txt', 'w', encoding='utf-8') as f:
-                f.write('Loss : {loss}\nStep : {step}')
-
-            with open(f'results/{step}-step/train-loss.pk', 'wb') as f:
-                pickle.dump(train_losses, f)
-
-            with open(f'results/{step}-step/valid-loss.pk', 'wb') as f:
-                pickle.dump(valid_losses, f)
-
-            with open(f'results/{step}-step/lrs.pk', 'wb') as f:
-                pickle.dump(self.learning_rates, f)
-
-            heapq.heappush(self.saved_path, (-loss, f'results/{step}-step/'))
+            heapq.heappush(self.saved_path, (-loss, base_path))
 
             self.logger.info(f"Save the model at {step} steps.\nLoss  : {loss:.4f}")
 
