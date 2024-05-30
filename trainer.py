@@ -107,20 +107,20 @@ class Trainer:
                 dataset = pickle.load(f)
                 step_per_epoch = math.ceil(len(dataset) / self.config.batch_size)
                 self.total_steps = step_per_epoch * self.config.epochs
+                logger.info(f"Number of Train data : {len(dataset)}")
+                del dataset
         else:
             with open(os.path.join(self.config.checkpoint, 'checkpoint-info.pk'), 'rb') as f:
                 self.checkpoint_info = pickle.load(f)
                 self.total_steps = self.checkpoint_info['total_steps']
                 self.config.num_warmup_steps = self.checkpoint_info['num_warmup_steps']
-        
-        logger.info(f"Number of Train data : {len(dataset)}\nTotal Steps : {self.total_steps}")
-        
-        del dataset
+
+        logger.info(f"Total Steps : {self.total_steps}")
 
         lr_lambda = partial(
             get_linear_schedule_with_warmup_lr_lambda,
             num_warmup_steps=self.config.num_warmup_steps,
-            num_training_steps=1011640,
+            num_training_steps=self.total_steps,
         )
         self.scheduler = optim.lr_scheduler.LambdaLR(
             self.optimizer,
