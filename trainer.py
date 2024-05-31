@@ -184,15 +184,19 @@ class Trainer:
                     if phase == "train":
                         self._save_learning_rate()
                         total_loss, mlm_loss, nsp_loss = self._training_step(model_inputs, labels)
+                        # TODO : step option
+                        if self.config.save_strategy == "step":
+                            if i % self.config.save_step == 0:
+                                best_val_loss = self.save_checkpoint(
+                                                best_val_loss,
+                                                epoch_loss,
+                                                (epoch * len(self.dataloaders[phase])) + i,
+                                                train_losses=train_loss_history,
+                                                valid_losses=valid_loss_history
+                                            )
+
                     else:
                         total_loss, mlm_loss, nsp_loss = self._validation_step(model_inputs, labels)
-                        best_val_loss = self.save_checkpoint(
-                            best_val_loss,
-                            total_loss,
-                            (epoch * len(self.dataloaders[phase])) + i,
-                            train_losses=train_loss_history,
-                            valid_losses=valid_loss_history
-                            )
 
                     if i % self.config.log_step == 0:
                         self.logger.info(f"{'Epoch':<15}{epoch + 1}\n{'Phase':<15}{phase}\n{'Step':<15}{i}\n{'Total Loss':<15}{total_loss:.4f}\n{'MLM Loss':<15}{mlm_loss:.4f}\n{'NSP Loss':<15}{nsp_loss:.4f}\n")
@@ -202,7 +206,17 @@ class Trainer:
                         else:
                             valid_loss_history.append([(epoch * len(self.dataloaders[phase])) + i, total_loss])
                     epoch_loss += total_loss * batch['input_ids'].size(0)
+
                 epoch_loss = epoch_loss / len(self.dataloaders[phase].dataset)
+
+                if phase == "valid" and self.config.save_strategy == "epoch":
+                    best_val_loss = self.save_checkpoint(
+                                    best_val_loss,
+                                    epoch_loss,
+                                    epoch + 1,
+                                    train_losses=train_loss_history,
+                                    valid_losses=valid_loss_history
+                                )
                 self.logger.info(f"{'Epoch Loss':<15}{epoch_loss:.4f}")
         self.save_checkpoint(last_save=True, train_losses=train_loss_history, valid_losses=valid_loss_history)
         
@@ -240,7 +254,7 @@ class Trainer:
             self,
             base_path: str = None,
             loss: float = None,
-            step: float = None,
+            step: int = None,
             train_losses: List = None,
             valid_losses: List = None,
             ):
@@ -250,15 +264,31 @@ class Trainer:
         torch.save(self.scheduler.state_dict(), f'{base_path}/scheduler.pt')
         self.model.config.to_json_file(f'{base_path}/config.json')
 
-        save_items = {
-                'train_losses': train_losses,
-                'valid_losses': valid_losses,
-                'learning_rates': self.learning_rates,
-                'best_loss': loss,
-                'step': step,
-                'total_steps' : self.total_steps,
-                'num_warmup_steps': self.config.num_warmup_steps
-                }
+        if self.config.save_strategy == "epoch":
+            save_items = {
+                    'train_losses': train_losses,
+                    'valid_losses': valid_losses,
+                    'learning_rates': self.learning_rates,
+                    'best_loss': loss,
+                    'epoch': step,
+                    'total_steps' : self.total_steps,
+                    'num_warmup_steps': self.config.num_warmup_steps
+                    }
+            
+        elif self.config.save_strategy == "step":
+            save_items = {
+                    'train_losses': train_losses,
+                    'valid_losses': valid_losses,
+                    'learning_rates': self.learning_rates,
+                    'best_loss': loss,
+                    'step': step,
+                    'total_steps' : self.total_steps,
+                    'num_warmup_steps': self.config.num_warmup_steps
+                    }
+        
+        else:
+            raise ValueError("save_strategy is set to epoch or step.")
+
         with open(f'{base_path}/checkpoint-info.pk', 'wb') as f:
             pickle.dump(save_items, f)
 
@@ -272,7 +302,7 @@ class Trainer:
             valid_losses: List = None,
             last_save: bool = False
             ):
-        base_path = f'results/{step}-step'
+        base_path = f'results/{step}-{self.config.save_strategy}'
         if last_save:
             base_path = 'results'
             self._save_checkpoint(base_path, loss, step, train_losses, valid_losses)
@@ -286,7 +316,7 @@ class Trainer:
 
             heapq.heappush(self.saved_path, (-loss, base_path))
 
-            self.logger.info(f"Save the model at {step} steps.\nLoss  : {loss:.4f}")
+            self.logger.info(f"Saved model..\nLoss  : {loss:.4f}")
 
             return loss
 
