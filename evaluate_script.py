@@ -5,8 +5,8 @@ from transformers import AutoTokenizer, AutoModel
 
 
 threshold = 0.779
-tokenizer = AutoTokenizer.from_pretrained('tokenizer/tokenizer-32k-total')
-model = AutoModel.from_pretrained('1802631-steps/')
+tokenizer = AutoTokenizer.from_pretrained("tokenizer/tokenizer-32k-total")
+model = AutoModel.from_pretrained("./4-epoch")
 device = torch.device("cuda")
 model.to(device)
 model.eval()
@@ -46,15 +46,18 @@ def get_metric(preds, labels, threshold):
     recall = tp / (tp + fn)
     precision = tp / (tp + fp)
     specificity = tn / (tn + fp)
+    f1 = 2 * (precision * recall)/(precision + recall)
     accuracy =  (tp + tn) / (tp + tn + fp + fn)
 
-    return recall, precision, specificity, accuracy
+    return recall, precision, specificity, f1, accuracy
 
 # Load data
-eval_data = pd.read_excel('evaluate.xlsx')
+# eval_data = pd.read_excel('evaluate.xlsx')
+df = pd.read_excel('231128_MOA_유사도_측정_결과.xlsx')
 
 # convert to tensor
-model_inputs = eval_data.apply(lambda row: (tokenizer(row['moa1'], return_tensors='pt'), tokenizer(row['moa2'], return_tensors='pt')), axis=1)
+# model_inputs = eval_data.apply(lambda row: (tokenizer(row['moa1'], return_tensors='pt'), tokenizer(row['moa2'], return_tensors='pt')), axis=1)
+model_inputs = df.apply(lambda row: (tokenizer(row['moa1'], return_tensors='pt'), tokenizer(row['moa2'], return_tensors='pt')), axis=1)
 
 # get the logits
 model_outputs = model_inputs.apply(get_logits)
@@ -62,6 +65,9 @@ model_outputs = model_inputs.apply(get_logits)
 # get the cosine similarity
 cos_sims = model_outputs.apply(cos_sim)
 
+df['Our-Model(based BioBERT)'] = cos_sims
+
+df.to_excel('test.xlsx', index=False)
 # Meric
-recall, precision, specificity, accuracy = get_metric(cos_sims, eval_data['label'], threshold=threshold)
-print(f"recall : {recall}\nprecision : {precision}\nspecificity : {specificity}\naccuracy : {accuracy}")
+# recall, precision, specificity, f1, accuracy = get_metric(cos_sims, eval_data['label'], threshold=threshold)
+# print(f"recall : {recall}\nprecision : {precision}\nspecificity : {specificity}\nf1-score : {f1}\naccuracy : {accuracy}")
