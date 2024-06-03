@@ -180,26 +180,26 @@ class Trainer:
                     # Send device
                     model_inputs = {k: batch[k].to(self.device) for k in ("input_ids", "token_type_ids", "attention_mask")}
                     labels = {k: batch[k].type(torch.LongTensor).to(self.device) for k in ("mask_label", "nsp_label")}
-                    
+                    step = (epoch * len(self.dataloaders[phase])) + i
                     if phase == "train":
                         self._save_learning_rate()
                         total_loss, mlm_loss, nsp_loss = self._training_step(model_inputs, labels)
-                        
+
                         if self.config.save_strategy == "step":
                             if (i + 1) % self.config.save_step == 0:
                                 best_val_loss = self.save_checkpoint(
-                                                step=(epoch * len(self.dataloaders[phase])) + i,
+                                                step=step,
                                             )
                     else:
                         total_loss, mlm_loss, nsp_loss = self._validation_step(model_inputs, labels)
 
                     if i % self.config.log_step == 0:
-                        self.logger.info(f"{'Epoch':<15}{epoch + 1}\n{'Phase':<15}{phase}\n{'Step':<15}{i}\n{'Total Loss':<15}{total_loss:.4f}\n{'MLM Loss':<15}{mlm_loss:.4f}\n{'NSP Loss':<15}{nsp_loss:.4f}\n")
+                        self.logger.info(f"{'Epoch':<15}{epoch + 1}\n{'Phase':<15}{phase}\n{'Step':<15}{step}\n{'Total Loss':<15}{total_loss:.4f}\n{'MLM Loss':<15}{mlm_loss:.4f}\n{'NSP Loss':<15}{nsp_loss:.4f}\n")
                         if phase == "train":
                             # step / loss
-                            train_loss_history.append([(epoch * len(self.dataloaders[phase])) + i, total_loss])
+                            train_loss_history.append([step, total_loss])
                         else:
-                            valid_loss_history.append([(epoch * len(self.dataloaders[phase])) + i, total_loss])
+                            valid_loss_history.append([step, total_loss])
                     epoch_loss += total_loss * batch['input_ids'].size(0)
 
                 epoch_loss = epoch_loss / len(self.dataloaders[phase].dataset)
