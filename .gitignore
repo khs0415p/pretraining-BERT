@@ -178,3 +178,6 @@ data/*.pk
 
 # tokenizer
 tokenizer/
+
+# Our data
+*.xlsx
