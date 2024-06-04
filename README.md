@@ -1,4 +1,4 @@
-# Pretraining BERT with PyTorch and Huggingface
+# Pretraining BERT(DistilBERT) with PyTorch and Huggingface
 
 # Step 1. Collect data to train Tokenizer and BERT
 
@@ -17,7 +17,7 @@ refer to `data/collate_data.ipynb`
 
     - 50% (0 : not next sentence, 1 : next sentence)
 
-# Step 3. Training BERT
+# Step 3.1 Training BERT
 
 
 ```python
@@ -30,6 +30,17 @@ python run_pretraining.py --c config.json --cont --checkpoint results/1000-step
 
 - `--checkpoint` : path of checkpoint for continous training
 
+# Step 3.2 Training DistilBERT
+
+```python
+python distilbert_run_pretraining.py --c distil_config.json --cont --checkpoint results/5-epoch
+```
+
+- `--config_path` : config file (default : './distil_config.json')
+
+- `--continuous` : boolean for continuous training
+
+- `--checkpoint` : path of checkpoint for continous training
 
 # Step 4. Evaluate
 
