@@ -12,7 +12,7 @@ def get_pretrained_weights(model: PreTrainedModel, pretrained_model: PreTrainedM
 
     layers = []
     for k, v in model.state_dict().items():
-        if 'embeddings' in k or 'predictions' in k:
+        if 'embeddings' in k or 'predictions' in k or 'vocab_projector' in k:
             layers.append((k, v))
             continue
         
