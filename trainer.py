@@ -40,6 +40,9 @@ class Trainer:
         self.config = config
         self.logger = logger
 
+        # Number of iteration
+        self.n_iter = 0
+
         # Number of checkpoint
         self.save_total_limit = self.config.save_total_limit
 
@@ -117,6 +120,7 @@ class Trainer:
                 self.checkpoint_info = pickle.load(f)
                 self.total_steps = self.checkpoint_info['total_steps']
                 self.config.num_warmup_steps = self.checkpoint_info['num_warmup_steps']
+        self.total_steps = (self.total_steps / self.config.gradient_accumulation_steps) + 1
 
         logger.info(f"Total Steps : {self.total_steps}")
 
@@ -189,7 +193,7 @@ class Trainer:
                         total_loss, mlm_loss, nsp_loss = self._training_step(model_inputs, labels)
 
                         if self.config.save_strategy == "step":
-                            if (i + 1) % self.config.save_step == 0:
+                            if self.n_iter % self.config.save_step == 0:
                                 best_val_loss = self.save_checkpoint(
                                                 step=step,
                                             )
@@ -231,9 +235,10 @@ class Trainer:
         total_loss = mlm_loss + nsp_loss
 
         total_loss.backward()
-        clip_grad_norm_(self.model.parameters(), self.config.max_norm)
-        self.optimizer.step()
-        self.scheduler.step()
+        if self.n_iter % self.config.gradient_accumulation_steps == 0:
+            clip_grad_norm_(self.model.parameters(), self.config.max_norm)
+            self.optimizer.step()
+            self.scheduler.step()
         
         return total_loss.item(), mlm_loss.item(), nsp_loss.item()
     
@@ -328,6 +333,9 @@ class DistilBertTrainer:
 
         self.tokenizer = tokenizer
 
+        # Number of iteration
+        self.n_iter = 0
+
         # Load Model
         self.teacher_model = BertForMaskedLM.from_pretrained(self.config.teacher_path, output_hidden_states=True)
         distilbert_config = DistilBertConfig(vocab_size=self.config.vocab_size, output_hidden_states=True)
@@ -396,6 +404,7 @@ class DistilBertTrainer:
                 self.checkpoint_info = pickle.load(f)
                 self.total_steps = self.checkpoint_info['total_steps']
                 self.config.num_warmup_steps = self.checkpoint_info['num_warmup_steps']
+        self.total_steps = (self.total_steps / self.config.gradient_accumulation_steps) + 1
 
         logger.info(f"Total Steps : {self.total_steps}")
 
@@ -467,7 +476,7 @@ class DistilBertTrainer:
                         total_loss, distilation_loss, mlm_loss, cos_emb_loss = self._training_step(model_inputs, labels)
 
                         if self.config.save_strategy == "step":
-                            if (i + 1) % self.config.save_step == 0:
+                            if self.n_iter % self.config.save_step == 0:
                                 best_val_loss = self.save_checkpoint(
                                                 step=step,
                                             )
@@ -548,9 +557,11 @@ class DistilBertTrainer:
         total_loss = mlm_loss + distillation_loss + cos_embed_loss
 
         total_loss.backward()
-        clip_grad_norm_(self.student_model.parameters(), self.config.max_norm)
-        self.optimizer.step()
-        self.scheduler.step()
+        self.n_iter += 1
+        if self.n_iter % self.config.gradient_accumulation_steps == 0:
+            clip_grad_norm_(self.student_model.parameters(), self.config.max_norm)
+            self.optimizer.step()
+            self.scheduler.step()
         
         return total_loss.item(), distillation_loss.item(), mlm_loss.item(), cos_embed_loss.item()
     
