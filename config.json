@@ -19,5 +19,8 @@
     "batch_size": 64,
     "limit_alphabet" : 10000,
     "min_frequency" : 5,
-    "save_total_limit" : 5
+    "save_total_limit" : 15,
+    "save_strategy" : "epoch",
+    "save_step" : 500,
+    "gradient_accumulation_steps" : 1.0
 }
