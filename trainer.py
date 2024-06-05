@@ -628,7 +628,7 @@ class DistilBertTrainer:
         torch.save(self.student_model.state_dict(), f'{base_path}/pytorch_model.bin')
         torch.save(self.optimizer.state_dict(), f'{base_path}/optimizer.pt')
         torch.save(self.scheduler.state_dict(), f'{base_path}/scheduler.pt')
-        self.model.config.to_json_file(f'{base_path}/config.json')
+        self.student_model.config.to_json_file(f'{base_path}/config.json')
 
         save_items = {
                 'train_losses': train_losses,
