@@ -1,12 +1,11 @@
 import torch
 import pandas as pd
 
-from transformers import AutoTokenizer, AutoModel
-
+from transformers import AutoTokenizer, AutoModel, DistilBertPreTrainedModel
 
 threshold = 0.779
 tokenizer = AutoTokenizer.from_pretrained("tokenizer/tokenizer-32k-total")
-model = AutoModel.from_pretrained("./4-epoch")
+model = AutoModel.from_pretrained("results/9-epoch")
 device = torch.device("cuda")
 model.to(device)
 model.eval()
@@ -22,10 +21,18 @@ def cos_sim(row, eps=1e-08, mode='mean'):
     
 
 def get_logits(row):
-    a = {k: v.to(device) for k, v in row[0].items()}
-    b = {k: v.to(device) for k, v in row[1].items()}
-    output_a = model(**a)
-    output_b = model(**b)
+
+    if isinstance(model, DistilBertPreTrainedModel):
+        a = {k: v.to(device) for k, v in row[0].items() if k != 'token_type_ids'}
+        b = {k: v.to(device) for k, v in row[1].items() if k != 'token_type_ids'}
+    
+    else:
+        a = {k: v.to(device) for k, v in row[0].items()}
+        b = {k: v.to(device) for k, v in row[1].items()}
+
+    output_a = model(**a, output_hidden_states=False)
+    output_b = model(**b, output_hidden_states=False)
+
     output_a = {k:v.detach().cpu() for k, v in output_a.items()}
     output_b = {k:v.detach().cpu() for k, v in output_b.items()}
 
