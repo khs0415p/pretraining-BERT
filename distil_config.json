@@ -24,5 +24,7 @@
     "save_strategy" : "epoch",
     "save_step" : 500,
     "alpha_ce" : 0.5,
-    "gradient_accumulation_steps" : 1.0
+    "gradient_accumulation_steps" : 1.0,
+    "fp16" : false,
+    "fp16_opt_level" : "01"
 }

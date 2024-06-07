@@ -22,5 +22,7 @@
     "save_total_limit" : 15,
     "save_strategy" : "epoch",
     "save_step" : 500,
-    "gradient_accumulation_steps" : 1.0
+    "gradient_accumulation_steps" : 1.0,
+    "fp16" : false,
+    "fp16_opt_level" : "01"
 }
