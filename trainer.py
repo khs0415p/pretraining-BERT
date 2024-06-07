@@ -443,8 +443,8 @@ class DistilBertTrainer:
             except ImportError:
                 raise ImportError("Install apex from https://www.github.com/nvidia/apex")
             logger.info(f'Using fp16 training: {self.config.fp16_opt_level} level.')
-            self.model, self.optimizer = amp.initialize(
-                self.model, self.optimizer, opt_level=self.config.fp16_opt_level
+            self.student_model, self.optimizer = amp.initialize(
+                self.student_model, self.optimizer, opt_level=self.config.fp16_opt_level
             )
 
         # LR list
