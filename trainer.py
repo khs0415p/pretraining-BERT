@@ -134,6 +134,16 @@ class Trainer:
             lr_lambda,
             )
         
+        if self.config.fp16:
+            try:
+                from apex import amp
+            except ImportError:
+                raise ImportError("Install apex from https://www.github.com/nvidia/apex")
+            logger.info(f'Using fp16 training: {self.config.fp16_opt_level} level.')
+            self.model, self.optimizer = amp.initialize(
+                self.model, self.optimizer, opt_level=self.config.fp16_opt_level
+            )
+        
         # LR list
         self.learning_rates = []
 
@@ -148,6 +158,8 @@ class Trainer:
             self.model.load_state_dict(model_state)
             self.optimizer.load_state_dict(optimizer_state)
             self.scheduler.load_state_dict(scheduler_state)
+            if self.config.fp16:
+                amp.load_state_dict(self.checkpoint_info['amp'])
 
             del model_state, optimizer_state, scheduler_state
             torch.cuda.empty_cache()
@@ -234,9 +246,18 @@ class Trainer:
         nsp_loss = self.nsp_criterion(output['seq_relationship_logits'], labels['nsp_label'].view(-1))
         total_loss = mlm_loss + nsp_loss
 
-        total_loss.backward()
+        if self.config.fp16:
+            from apex import amp
+            with amp.scale_loss(total_loss, self.optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            total_loss.backward()
+
         if self.n_iter % self.config.gradient_accumulation_steps == 0:
-            clip_grad_norm_(self.model.parameters(), self.config.max_norm)
+            if self.config.fp16:
+                clip_grad_norm_(amp.master_params(self.optimizer), self.config.max_norm)
+            else:
+                clip_grad_norm_(self.model.parameters(), self.config.max_norm)
             self.optimizer.step()
             self.scheduler.step()
         
@@ -266,16 +287,18 @@ class Trainer:
         torch.save(self.optimizer.state_dict(), f'{base_path}/optimizer.pt')
         torch.save(self.scheduler.state_dict(), f'{base_path}/scheduler.pt')
         self.model.config.to_json_file(f'{base_path}/config.json')
-
         save_items = {
-                'train_losses': train_losses,
-                'valid_losses': valid_losses,
-                'learning_rates': self.learning_rates,
-                'best_loss': loss,
-                'epoch_or_step': step,
-                'total_steps' : self.total_steps,
-                'num_warmup_steps': self.config.num_warmup_steps
-                }
+                    'train_losses': train_losses,
+                    'valid_losses': valid_losses,
+                    'learning_rates': self.learning_rates,
+                    'best_loss': loss,
+                    'epoch_or_step': step,
+                    'total_steps' : self.total_steps,
+                    'num_warmup_steps': self.config.num_warmup_steps,
+                    }
+        if self.config.fp16:
+            from apex import amp
+            save_items['amp'] = amp.state_dict()
 
         with open(f'{base_path}/checkpoint-info.pk', 'wb') as f:
             pickle.dump(save_items, f)
@@ -414,6 +437,16 @@ class DistilBertTrainer:
             num_training_steps=self.total_steps,
         )
 
+        if self.config.fp16:
+            try:
+                from apex import amp
+            except ImportError:
+                raise ImportError("Install apex from https://www.github.com/nvidia/apex")
+            logger.info(f'Using fp16 training: {self.config.fp16_opt_level} level.')
+            self.model, self.optimizer = amp.initialize(
+                self.model, self.optimizer, opt_level=self.config.fp16_opt_level
+            )
+
         # LR list
         self.learning_rates = []
 
@@ -428,6 +461,8 @@ class DistilBertTrainer:
             self.student_model.load_state_dict(model_state)
             self.optimizer.load_state_dict(optimizer_state)
             self.scheduler.load_state_dict(scheduler_state)
+            if self.config.fp16:
+                amp.load_state_dict(self.checkpoint_info['amp'])
 
             del model_state, optimizer_state, scheduler_state
             torch.cuda.empty_cache()
@@ -556,10 +591,18 @@ class DistilBertTrainer:
 
         total_loss = mlm_loss + distillation_loss + cos_embed_loss
 
-        total_loss.backward()
+        if self.config.fp16:
+            from apex import amp
+            with amp.scale_loss(total_loss, self.optimizer) as scaled_loss:
+                scaled_loss.backward()
+        else:
+            total_loss.backward()
         self.n_iter += 1
         if self.n_iter % self.config.gradient_accumulation_steps == 0:
-            clip_grad_norm_(self.student_model.parameters(), self.config.max_norm)
+            if self.config.fp16:
+                clip_grad_norm_(amp.master_params(self.optimizer), self.config.max_norm)
+            else:
+                clip_grad_norm_(self.model.parameters(), self.config.max_norm)
             self.optimizer.step()
             self.scheduler.step()
         
@@ -631,14 +674,17 @@ class DistilBertTrainer:
         self.student_model.config.to_json_file(f'{base_path}/config.json')
 
         save_items = {
-                'train_losses': train_losses,
-                'valid_losses': valid_losses,
-                'learning_rates': self.learning_rates,
-                'best_loss': loss,
-                'epoch_or_step': step,
-                'total_steps' : self.total_steps,
-                'num_warmup_steps': self.config.num_warmup_steps
-                }
+                    'train_losses': train_losses,
+                    'valid_losses': valid_losses,
+                    'learning_rates': self.learning_rates,
+                    'best_loss': loss,
+                    'epoch_or_step': step,
+                    'total_steps' : self.total_steps,
+                    'num_warmup_steps': self.config.num_warmup_steps,
+                    }
+        if self.config.fp16:
+            from apex import amp
+            save_items['amp'] = amp.state_dict()
 
         with open(f'{base_path}/checkpoint-info.pk', 'wb') as f:
             pickle.dump(save_items, f)
