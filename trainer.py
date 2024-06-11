@@ -26,9 +26,9 @@ from transformers import (
 )
 
 from model.modeling_bert import BertForPreTraining, BertForMaskedLM
-from model.modeling_distilbert import DistilBertForMaskedLM, DistilBertConfig
+from model.modeling_distilbert import DistilBertForMaskedLM, DistilBertConfig, DistilBertForPretraining
 
-class Trainer:
+class BertTrainer:
     """Trainer for BERT"""
     def __init__(
             self,
@@ -56,13 +56,24 @@ class Trainer:
         self.tokenizer = tokenizer
         
         # Load Model
-        bert_config = BertConfig(vocab_size=self.config.vocab_size)
-        self.model = BertForPreTraining(bert_config)
-        if self.config.use_backbone:
-            pretrained_model = BertForPreTraining.from_pretrained(self.config.backbone)
-            layers = get_pretrained_weights(self.model, pretrained_model)
-            self.model.load_state_dict(layers)
-            del pretrained_model
+        if self.config.model_type == "bert":
+            bert_config = BertConfig(vocab_size=self.config.vocab_size)
+            self.model = BertForPreTraining(bert_config)
+            if self.config.use_backbone:
+                pretrained_model = BertForPreTraining.from_pretrained(self.config.backbone)
+                
+        elif self.config.model_type == "distilbert":
+            distil_config = DistilBertConfig.from_pretrained(self.config.backbone)
+            distil_config.vocab_size = self.config.vocab_size
+            self.model = DistilBertForPretraining(distil_config)
+            if self.config.use_backbone:
+                pretrained_model = DistilBertForPretraining.from_pretrained(self.config.backbone)
+        else:
+            raise ValueError("Please select bert or distilbert for the model_type.")
+        
+        layers = get_pretrained_weights(self.model, pretrained_model)
+        self.model.load_state_dict(layers)
+        del pretrained_model
 
         # Change device
         self.model.to(self.device)
@@ -106,7 +117,6 @@ class Trainer:
                         collate_fn=collate_fn
                     )
         
-
         # Define Scheduler
         if not self.config.continuous:
             with open(self.config.train_path.format(0), 'rb') as f:
@@ -124,15 +134,11 @@ class Trainer:
 
         logger.info(f"Total Steps : {self.total_steps}")
 
-        lr_lambda = partial(
-            get_linear_schedule_with_warmup_lr_lambda,
+        self.scheduler = get_linear_schedule_with_warmup(
+            self.optimizer,
             num_warmup_steps=self.config.num_warmup_steps,
             num_training_steps=self.total_steps,
         )
-        self.scheduler = optim.lr_scheduler.LambdaLR(
-            self.optimizer,
-            lr_lambda,
-            )
         
         if self.config.fp16:
             try:
@@ -168,7 +174,7 @@ class Trainer:
         self.nsp_criterion = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
         self.mlm_criterion = nn.CrossEntropyLoss(ignore_index=-100)
 
-        logger.info(f"{'Initialize Trainer':>15}\n{'Batch Size':<15}{config.batch_size}\n{'Vocab Size':<15}{config.vocab_size}\n{'Learning Rate':<15}{config.lr}\n{'Optimizer':<15}{type(self.optimizer)}")
+        logger.info(f"{'Initialize Trainer':>15}\n{'Model':<15}{type(self.model)}\n{'Batch Size':<15}{config.batch_size}\n{'Vocab Size':<15}{config.vocab_size}\n{'Learning Rate':<15}{config.lr}\n{'Optimizer':<15}{type(self.optimizer)}")
 
 
     def train(self):

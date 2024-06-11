@@ -20,6 +20,7 @@ part from HuggingFace PyTorch version of Google AI Bert model (https://github.co
 
 import math
 from typing import Dict, List, Optional, Set, Tuple, Union
+from collections import OrderedDict
 
 import numpy as np
 import torch
@@ -920,75 +921,37 @@ class DistilBertForMaskedLM(DistilBertPreTrainedModel):
             hidden_states=dlbrt_output.hidden_states,
             attentions=dlbrt_output.attentions,
         )
+    
 
-
-@add_start_docstrings(
-    """
-    DistilBert Model transformer with a sequence classification/regression head on top (a linear layer on top of the
-    pooled output) e.g. for GLUE tasks.
-    """,
-    DISTILBERT_START_DOCSTRING,
-)
-class DistilBertForSequenceClassification(DistilBertPreTrainedModel):
-    def __init__(self, config: PretrainedConfig):
+class DistilBertForPretraining(DistilBertPreTrainedModel):
+    def __init__(self, config):
         super().__init__(config)
-        self.num_labels = config.num_labels
-        self.config = config
-
+        
+        
         self.distilbert = DistilBertModel(config)
-        self.pre_classifier = nn.Linear(config.dim, config.dim)
-        self.classifier = nn.Linear(config.dim, config.num_labels)
-        self.dropout = nn.Dropout(config.seq_classif_dropout)
 
-        # Initialize weights and apply final processing
+        self.activation = nn.GELU()
+        self.vocab_transform = nn.Linear(config.dim, config.dim)
+        self.vocab_layer_norm = nn.LayerNorm(config.dim, eps=1e-12)
+        self.vocab_projector = nn.Linear(config.dim, config.vocab_size)
+        
+        self.seq_relationship = nn.Linear(config.dim, 2)
+
         self.post_init()
-
-    def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings
-        """
-        return self.distilbert.get_position_embeddings()
-
-    def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings of the model if `new_num_position_embeddings != config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embedding matrix. If position embeddings are learned, increasing the size
-                will add newly initialized vectors at the end, whereas reducing the size will remove vectors from the
-                end. If position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the
-                size will add correct vectors at the end following the position encoding algorithm, whereas reducing
-                the size will remove vectors from the end.
-        """
-        self.distilbert.resize_position_embeddings(new_num_position_embeddings)
-
-    @add_start_docstrings_to_model_forward(DISTILBERT_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
-    @add_code_sample_docstrings(
-        checkpoint=_CHECKPOINT_FOR_DOC,
-        output_type=SequenceClassifierOutput,
-        config_class=_CONFIG_FOR_DOC,
-    )
+    
     def forward(
         self,
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
+        token_type_ids: Optional[torch.Tensor] = None,
         head_mask: Optional[torch.Tensor] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
         labels: Optional[torch.LongTensor] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
-    ) -> Union[SequenceClassifierOutput, Tuple[torch.Tensor, ...]]:
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
-            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
-            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
-            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
-        """
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-        distilbert_output = self.distilbert(
+    ):
+        dlbrt_output = self.distilbert(
             input_ids=input_ids,
             attention_mask=attention_mask,
             head_mask=head_mask,
@@ -997,385 +960,13 @@ class DistilBertForSequenceClassification(DistilBertPreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
-        hidden_state = distilbert_output[0]  # (bs, seq_len, dim)
-        pooled_output = hidden_state[:, 0]  # (bs, dim)
-        pooled_output = self.pre_classifier(pooled_output)  # (bs, dim)
-        pooled_output = nn.ReLU()(pooled_output)  # (bs, dim)
-        pooled_output = self.dropout(pooled_output)  # (bs, dim)
-        logits = self.classifier(pooled_output)  # (bs, num_labels)
+        seq_relationship_score = self.seq_relationship(dlbrt_output['last_hidden_state'][:, 0, :])
+        hidden_states = self.vocab_transform(dlbrt_output['last_hidden_state'])
+        hidden_states = self.activation(hidden_states) # activation
+        hidden_states = self.vocab_layer_norm(hidden_states)
+        prediction_scores = self.vocab_projector(hidden_states)
 
-        loss = None
-        if labels is not None:
-            if self.config.problem_type is None:
-                if self.num_labels == 1:
-                    self.config.problem_type = "regression"
-                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
-                    self.config.problem_type = "single_label_classification"
-                else:
-                    self.config.problem_type = "multi_label_classification"
-
-            if self.config.problem_type == "regression":
-                loss_fct = MSELoss()
-                if self.num_labels == 1:
-                    loss = loss_fct(logits.squeeze(), labels.squeeze())
-                else:
-                    loss = loss_fct(logits, labels)
-            elif self.config.problem_type == "single_label_classification":
-                loss_fct = CrossEntropyLoss()
-                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-            elif self.config.problem_type == "multi_label_classification":
-                loss_fct = BCEWithLogitsLoss()
-                loss = loss_fct(logits, labels)
-
-        if not return_dict:
-            output = (logits,) + distilbert_output[1:]
-            return ((loss,) + output) if loss is not None else output
-
-        return SequenceClassifierOutput(
-            loss=loss,
-            logits=logits,
-            hidden_states=distilbert_output.hidden_states,
-            attentions=distilbert_output.attentions,
-        )
-
-
-@add_start_docstrings(
-    """
-    DistilBert Model with a span classification head on top for extractive question-answering tasks like SQuAD (a
-    linear layers on top of the hidden-states output to compute `span start logits` and `span end logits`).
-    """,
-    DISTILBERT_START_DOCSTRING,
-)
-class DistilBertForQuestionAnswering(DistilBertPreTrainedModel):
-    def __init__(self, config: PretrainedConfig):
-        super().__init__(config)
-
-        self.distilbert = DistilBertModel(config)
-        self.qa_outputs = nn.Linear(config.dim, config.num_labels)
-        if config.num_labels != 2:
-            raise ValueError(f"config.num_labels should be 2, but it is {config.num_labels}")
-
-        self.dropout = nn.Dropout(config.qa_dropout)
-
-        # Initialize weights and apply final processing
-        self.post_init()
-
-    def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings
-        """
-        return self.distilbert.get_position_embeddings()
-
-    def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings of the model if `new_num_position_embeddings != config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embedding matrix. If position embeddings are learned, increasing the size
-                will add newly initialized vectors at the end, whereas reducing the size will remove vectors from the
-                end. If position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the
-                size will add correct vectors at the end following the position encoding algorithm, whereas reducing
-                the size will remove vectors from the end.
-        """
-        self.distilbert.resize_position_embeddings(new_num_position_embeddings)
-
-    @add_start_docstrings_to_model_forward(DISTILBERT_INPUTS_DOCSTRING.format("batch_size, num_choices"))
-    @add_code_sample_docstrings(
-        checkpoint=_CHECKPOINT_FOR_DOC,
-        output_type=QuestionAnsweringModelOutput,
-        config_class=_CONFIG_FOR_DOC,
-    )
-    def forward(
-        self,
-        input_ids: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        start_positions: Optional[torch.Tensor] = None,
-        end_positions: Optional[torch.Tensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[QuestionAnsweringModelOutput, Tuple[torch.Tensor, ...]]:
-        r"""
-        start_positions (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
-            Labels for position (index) of the start of the labelled span for computing the token classification loss.
-            Positions are clamped to the length of the sequence (`sequence_length`). Position outside of the sequence
-            are not taken into account for computing the loss.
-        end_positions (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
-            Labels for position (index) of the end of the labelled span for computing the token classification loss.
-            Positions are clamped to the length of the sequence (`sequence_length`). Position outside of the sequence
-            are not taken into account for computing the loss.
-        """
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-        distilbert_output = self.distilbert(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-        hidden_states = distilbert_output[0]  # (bs, max_query_len, dim)
-
-        hidden_states = self.dropout(hidden_states)  # (bs, max_query_len, dim)
-        logits = self.qa_outputs(hidden_states)  # (bs, max_query_len, 2)
-        start_logits, end_logits = logits.split(1, dim=-1)
-        start_logits = start_logits.squeeze(-1).contiguous()  # (bs, max_query_len)
-        end_logits = end_logits.squeeze(-1).contiguous()  # (bs, max_query_len)
-
-        total_loss = None
-        if start_positions is not None and end_positions is not None:
-            # If we are on multi-GPU, split add a dimension
-            if len(start_positions.size()) > 1:
-                start_positions = start_positions.squeeze(-1)
-            if len(end_positions.size()) > 1:
-                end_positions = end_positions.squeeze(-1)
-            # sometimes the start/end positions are outside our model inputs, we ignore these terms
-            ignored_index = start_logits.size(1)
-            start_positions = start_positions.clamp(0, ignored_index)
-            end_positions = end_positions.clamp(0, ignored_index)
-
-            loss_fct = nn.CrossEntropyLoss(ignore_index=ignored_index)
-            start_loss = loss_fct(start_logits, start_positions)
-            end_loss = loss_fct(end_logits, end_positions)
-            total_loss = (start_loss + end_loss) / 2
-
-        if not return_dict:
-            output = (start_logits, end_logits) + distilbert_output[1:]
-            return ((total_loss,) + output) if total_loss is not None else output
-
-        return QuestionAnsweringModelOutput(
-            loss=total_loss,
-            start_logits=start_logits,
-            end_logits=end_logits,
-            hidden_states=distilbert_output.hidden_states,
-            attentions=distilbert_output.attentions,
-        )
-
-
-@add_start_docstrings(
-    """
-    DistilBert Model with a token classification head on top (a linear layer on top of the hidden-states output) e.g.
-    for Named-Entity-Recognition (NER) tasks.
-    """,
-    DISTILBERT_START_DOCSTRING,
-)
-class DistilBertForTokenClassification(DistilBertPreTrainedModel):
-    def __init__(self, config: PretrainedConfig):
-        super().__init__(config)
-        self.num_labels = config.num_labels
-
-        self.distilbert = DistilBertModel(config)
-        self.dropout = nn.Dropout(config.dropout)
-        self.classifier = nn.Linear(config.hidden_size, config.num_labels)
-
-        # Initialize weights and apply final processing
-        self.post_init()
-
-    def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings
-        """
-        return self.distilbert.get_position_embeddings()
-
-    def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings of the model if `new_num_position_embeddings != config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`):
-                The number of new position embedding matrix. If position embeddings are learned, increasing the size
-                will add newly initialized vectors at the end, whereas reducing the size will remove vectors from the
-                end. If position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the
-                size will add correct vectors at the end following the position encoding algorithm, whereas reducing
-                the size will remove vectors from the end.
-        """
-        self.distilbert.resize_position_embeddings(new_num_position_embeddings)
-
-    @add_start_docstrings_to_model_forward(DISTILBERT_INPUTS_DOCSTRING)
-    @add_code_sample_docstrings(
-        checkpoint=_CHECKPOINT_FOR_DOC,
-        output_type=TokenClassifierOutput,
-        config_class=_CONFIG_FOR_DOC,
-    )
-    def forward(
-        self,
-        input_ids: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[TokenClassifierOutput, Tuple[torch.Tensor, ...]]:
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
-            Labels for computing the token classification loss. Indices should be in `[0, ..., config.num_labels - 1]`.
-        """
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-        outputs = self.distilbert(
-            input_ids,
-            attention_mask=attention_mask,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-
-        sequence_output = outputs[0]
-
-        sequence_output = self.dropout(sequence_output)
-        logits = self.classifier(sequence_output)
-
-        loss = None
-        if labels is not None:
-            loss_fct = CrossEntropyLoss()
-            loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
-
-        if not return_dict:
-            output = (logits,) + outputs[1:]
-            return ((loss,) + output) if loss is not None else output
-
-        return TokenClassifierOutput(
-            loss=loss,
-            logits=logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-        )
-
-
-@add_start_docstrings(
-    """
-    DistilBert Model with a multiple choice classification head on top (a linear layer on top of the pooled output and
-    a softmax) e.g. for RocStories/SWAG tasks.
-    """,
-    DISTILBERT_START_DOCSTRING,
-)
-class DistilBertForMultipleChoice(DistilBertPreTrainedModel):
-    def __init__(self, config: PretrainedConfig):
-        super().__init__(config)
-
-        self.distilbert = DistilBertModel(config)
-        self.pre_classifier = nn.Linear(config.dim, config.dim)
-        self.classifier = nn.Linear(config.dim, 1)
-        self.dropout = nn.Dropout(config.seq_classif_dropout)
-
-        # Initialize weights and apply final processing
-        self.post_init()
-
-    def get_position_embeddings(self) -> nn.Embedding:
-        """
-        Returns the position embeddings
-        """
-        return self.distilbert.get_position_embeddings()
-
-    def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        Resizes position embeddings of the model if `new_num_position_embeddings != config.max_position_embeddings`.
-
-        Arguments:
-            new_num_position_embeddings (`int`)
-                The number of new position embeddings. If position embeddings are learned, increasing the size will add
-                newly initialized vectors at the end, whereas reducing the size will remove vectors from the end. If
-                position embeddings are not learned (*e.g.* sinusoidal position embeddings), increasing the size will
-                add correct vectors at the end following the position encoding algorithm, whereas reducing the size
-                will remove vectors from the end.
-        """
-        self.distilbert.resize_position_embeddings(new_num_position_embeddings)
-
-    @add_start_docstrings_to_model_forward(
-        DISTILBERT_INPUTS_DOCSTRING.format("batch_size, num_choices, sequence_length")
-    )
-    @replace_return_docstrings(output_type=MultipleChoiceModelOutput, config_class=_CONFIG_FOR_DOC)
-    def forward(
-        self,
-        input_ids: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) -> Union[MultipleChoiceModelOutput, Tuple[torch.Tensor, ...]]:
-        r"""
-        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
-            Labels for computing the multiple choice classification loss. Indices should be in `[0, ...,
-            num_choices-1]` where `num_choices` is the size of the second dimension of the input tensors. (See
-            `input_ids` above)
-
-        Returns:
-
-        Examples:
-
-        ```python
-        >>> from transformers import AutoTokenizer, DistilBertForMultipleChoice
-        >>> import torch
-
-        >>> tokenizer = AutoTokenizer.from_pretrained("distilbert-base-cased")
-        >>> model = DistilBertForMultipleChoice.from_pretrained("distilbert-base-cased")
-
-        >>> prompt = "In Italy, pizza served in formal settings, such as at a restaurant, is presented unsliced."
-        >>> choice0 = "It is eaten with a fork and a knife."
-        >>> choice1 = "It is eaten while held in the hand."
-        >>> labels = torch.tensor(0).unsqueeze(0)  # choice0 is correct (according to Wikipedia ;)), batch size 1
-
-        >>> encoding = tokenizer([[prompt, choice0], [prompt, choice1]], return_tensors="pt", padding=True)
-        >>> outputs = model(**{k: v.unsqueeze(0) for k, v in encoding.items()}, labels=labels)  # batch size is 1
-
-        >>> # the linear classifier still needs to be trained
-        >>> loss = outputs.loss
-        >>> logits = outputs.logits
-        ```"""
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-        num_choices = input_ids.shape[1] if input_ids is not None else inputs_embeds.shape[1]
-
-        input_ids = input_ids.view(-1, input_ids.size(-1)) if input_ids is not None else None
-        attention_mask = attention_mask.view(-1, attention_mask.size(-1)) if attention_mask is not None else None
-        inputs_embeds = (
-            inputs_embeds.view(-1, inputs_embeds.size(-2), inputs_embeds.size(-1))
-            if inputs_embeds is not None
-            else None
-        )
-
-        outputs = self.distilbert(
-            input_ids,
-            attention_mask=attention_mask,
-            head_mask=head_mask,
-            inputs_embeds=inputs_embeds,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-        )
-
-        hidden_state = outputs[0]  # (bs * num_choices, seq_len, dim)
-        pooled_output = hidden_state[:, 0]  # (bs * num_choices, dim)
-        pooled_output = self.pre_classifier(pooled_output)  # (bs * num_choices, dim)
-        pooled_output = nn.ReLU()(pooled_output)  # (bs * num_choices, dim)
-        pooled_output = self.dropout(pooled_output)  # (bs * num_choices, dim)
-        logits = self.classifier(pooled_output)  # (bs * num_choices, 1)
-
-        reshaped_logits = logits.view(-1, num_choices)  # (bs, num_choices)
-
-        loss = None
-        if labels is not None:
-            loss_fct = CrossEntropyLoss()
-            loss = loss_fct(reshaped_logits, labels)
-
-        if not return_dict:
-            output = (reshaped_logits,) + outputs[1:]
-            return ((loss,) + output) if loss is not None else output
-
-        return MultipleChoiceModelOutput(
-            loss=loss,
-            logits=reshaped_logits,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-        )
+        return {
+            "prediction_logits": prediction_scores,
+            "seq_relationship_logits": seq_relationship_score
+            }

@@ -10,7 +10,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from config import Config
-from trainer import Trainer
+from trainer import BertTrainer
 from transformers import AutoTokenizer
 from dataset import PretrainDataSet
 
@@ -60,7 +60,7 @@ def main(args):
     config.vocab_size = tokenizer.vocab_size
 
     # Training
-    trainer = Trainer(config, logger, tokenizer, device)
+    trainer = BertTrainer(config, logger, tokenizer, device)
     trainer.train()
 
 
