@@ -25,8 +25,10 @@ from transformers import (
     get_linear_schedule_with_warmup
 )
 
-from model.modeling_bert import BertForPreTraining, BertForMaskedLM
-from model.modeling_distilbert import DistilBertForMaskedLM, DistilBertConfig, DistilBertForPretraining
+from models import BertForPreTraining, BertForMaskedLM
+from models import DistilBertForPretraining, DistilBertForMaskedLM, DistilBertConfig
+
+
 
 class BertTrainer:
     """Trainer for BERT"""
