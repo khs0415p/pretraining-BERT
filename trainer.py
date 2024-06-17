@@ -183,7 +183,8 @@ class BertTrainer:
         best_val_loss = self.checkpoint_info['best_loss'] if self.config.continuous else float('inf')
         train_loss_history = self.checkpoint_info['train_losses'] if self.config.continuous else []
         valid_loss_history = self.checkpoint_info['valid_losses'] if self.config.continuous else []
-        for epoch in range(self.config.epochs):
+        start_epoch = self.checkpoint_info['epoch_or_step'] if self.config.continuous else 0
+        for epoch in range(start_epoch, start_epoch + self.config.epochs):
             for phase in ['train', 'valid']:
                 if phase == 'train':
                     self.model.train()
@@ -487,7 +488,8 @@ class DistilBertTrainer:
         best_val_loss = self.checkpoint_info['best_loss'] if self.config.continuous else float('inf')
         train_loss_history = self.checkpoint_info['train_losses'] if self.config.continuous else []
         valid_loss_history = self.checkpoint_info['valid_losses'] if self.config.continuous else []
-        for epoch in range(self.config.epochs):
+        start_epoch = self.checkpoint_info['epoch_or_step'] if self.config.continuous else 0
+        for epoch in range(start_epoch, start_epoch + self.config.epochs):
             for phase in ['train', 'valid']:
                 if phase == 'train':
                     self.student_model.train()
