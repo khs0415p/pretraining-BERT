@@ -10,9 +10,9 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from config import Config
-from trainer import BertTrainer
+from trainer import BertTrainer, RobertaTrainer, DistilBertTrainer
 from transformers import AutoTokenizer
-from dataset import PretrainDataSet
+from utils import PretrainDataSet
 
 
 if not os.path.exists('logs/'):
@@ -60,7 +60,13 @@ def main(args):
     config.vocab_size = tokenizer.vocab_size
 
     # Training
-    trainer = BertTrainer(config, logger, tokenizer, device)
+    if hasattr(config, 'student_path'):
+        trainer = DistilBertTrainer(config, logger, tokenizer, device)
+    elif config.model_type == 'roberta':
+        trainer = RobertaTrainer(config, logger, tokenizer, device)
+    else:
+        trainer = BertTrainer(config, logger, tokenizer, device)
+
     trainer.train()
 
 
