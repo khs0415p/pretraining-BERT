@@ -389,8 +389,17 @@ class DistilBertTrainer:
             base_path = 'results'
             self._save_checkpoint(base_path, loss, step, train_losses, valid_losses)
             return
-        
-        if best_loss > loss or loss == float("inf"):
+
+        elif not self.config.best:
+            if len(self.saved_path) >= self.save_total_limit:
+                remove_item = heapq.heappop(self.saved_path)
+                remove_file(remove_item[1])
+            self._save_checkpoint(base_path, loss, step, train_losses, valid_losses)
+            heapq.heappush(self.saved_path, (-loss, base_path))
+
+            self.logger.info(f"Saved not best model..\nLoss  : {loss:.4f}")
+
+        elif best_loss > loss or loss == float("inf"):
             if len(self.saved_path) >= self.save_total_limit:
                 remove_item = heapq.heappop(self.saved_path)
                 shutil.rmtree(remove_item[1])
