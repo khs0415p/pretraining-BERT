@@ -38,6 +38,7 @@ class BertTrainer:
             ) -> None:
         self.config = config
         self.logger = logger
+        self.gradient_accumulation_steps = config.gradient_accumulation_steps
 
         # Number of iteration
         self.n_iter = 0
@@ -132,7 +133,7 @@ class BertTrainer:
                 self.checkpoint_info = pickle.load(f)
                 self.total_steps = self.checkpoint_info['total_steps']
                 self.config.num_warmup_steps = self.checkpoint_info['num_warmup_steps']
-        self.total_steps = (self.total_steps / self.config.gradient_accumulation_steps) + 1
+        self.total_steps = (self.total_steps / self.gradient_accumulation_steps) + 1
 
         logger.info(f"Total Steps : {self.total_steps}")
 
@@ -255,6 +256,8 @@ class BertTrainer:
         nsp_loss = self.nsp_criterion(output['seq_relationship_logits'], labels['nsp_label'].view(-1))
         total_loss = mlm_loss + nsp_loss
 
+        # Loss scaling
+        loss = total_loss / self.gradient_accumulation_steps
         if self.config.fp16:
             from apex import amp
             with amp.scale_loss(total_loss, self.optimizer) as scaled_loss:
@@ -262,7 +265,7 @@ class BertTrainer:
         else:
             total_loss.backward()
 
-        if self.n_iter % self.config.gradient_accumulation_steps == 0:
+        if self.n_iter % self.gradient_accumulation_steps == 0:
             if self.config.fp16:
                 clip_grad_norm_(amp.master_params(self.optimizer), self.config.max_norm)
             else:
